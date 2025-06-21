@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "191190743736",
+    "project_id": "currency-conventor-96d66",
+    "storage_bucket": "currency-conventor-96d66.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:191190743736:android:7e12d724a7b92fd7b0924d",
+        "android_client_info": {
+          "package_name": "com.example.pc2_rosales"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA6esRj-YFWi1WSjAE3rnvWzp6ygQm_SuE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
