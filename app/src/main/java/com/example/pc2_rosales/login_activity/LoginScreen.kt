@@ -1,5 +1,6 @@
 package com.example.pc2_rosales.login_activity
 
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -8,8 +9,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -27,74 +30,104 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.example.pc2_rosales.MainViewModel
+import com.example.pc2_rosales.Routes
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.firestore
 
 @Composable
 fun LoginScreen(
     navController: NavController,
-    viewModel: LoginViewModel = viewModel()
+    mainViewModel: MainViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    val loginState by viewModel.loginState.collectAsState()
+    val viewModel: LoginViewModel = viewModel()
+
+    val email by viewModel.email.collectAsState()
+    val password by viewModel.password.collectAsState()
+    val loading by viewModel.loading.collectAsState()
+
+    fun onLoginSuccess(firebaseUser: FirebaseUser) {
+        viewModel.resetState()
+        mainViewModel.setUserId(firebaseUser.uid)
+
+        val db = Firebase.firestore
+        db.collection("currency").get()
+            .addOnSuccessListener { result ->
+                val map = mutableMapOf<String, Double>()
+                for (doc in result) {
+                    val id = doc.id
+                    val rate = doc.getDouble("rate") ?: 1.0
+                    map[id] = rate
+                }
+                mainViewModel.setCurrencyMap(map)
+                navController.navigate(Routes.CURRENCY)
+            }
+            .addOnFailureListener { exception ->
+                Log.e("LoginScreen", "Error loading currency data", exception)
+                Toast.makeText(context, "Error al cargar datos de moneda", Toast.LENGTH_LONG).show()
+            }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(32.dp),
+            .padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text("Iniciar sesión", style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.height(24.dp))
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedTextField(
             value = email,
-            onValueChange = { email = it },
+            onValueChange = { viewModel.onEmailChange(it) },
             label = { Text("Correo electrónico") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+            modifier = Modifier.fillMaxWidth()
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
             value = password,
-            onValueChange = { password = it },
+            onValueChange = { viewModel.onPasswordChange(it) },
             label = { Text("Contraseña") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            visualTransformation = PasswordVisualTransformation()
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
         )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(
-            onClick = { viewModel.login(email, password) },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = loginState != LoginViewModel.LoginState.Loading
-        ) {
-            Text("Iniciar sesión")
-        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text("¿No tienes cuenta? Regístrate")
-    }
-
-    when (loginState) {
-        is LoginViewModel.LoginState.Error -> {
-            Toast.makeText(context, (loginState as LoginViewModel.LoginState.Error).message, Toast.LENGTH_LONG).show()
-            viewModel.resetState()
-        }
-        LoginViewModel.LoginState.Success -> {
-            Toast.makeText(context, "Login exitoso", Toast.LENGTH_SHORT).show()
-            viewModel.resetState()
-            navController.navigate("currency") {
-                popUpTo("login") { inclusive = true } // Evita volver al login con el botón atrás
+        Button(
+            onClick = {
+                viewModel.setLoading(true)
+                FirebaseAuth.getInstance()
+                    .signInWithEmailAndPassword(email, password)
+                    .addOnCompleteListener { task ->
+                        viewModel.setLoading(false)
+                        if (task.isSuccessful) {
+                            val user = task.result?.user
+                            if (user != null) {
+                                onLoginSuccess(user)
+                            } else {
+                                Toast.makeText(context, "Error al iniciar sesión", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "Correo o contraseña incorrectos", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+            },
+            enabled = !loading,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            } else {
+                Text("Ingresar")
             }
         }
-        else -> Unit
     }
 }

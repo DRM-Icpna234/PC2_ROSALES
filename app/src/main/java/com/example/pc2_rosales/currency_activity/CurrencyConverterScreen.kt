@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -31,23 +32,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.pc2_rosales.MainViewModel
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.firestore
 
 @Composable
 fun CurrencyConverterScreen(
-    currencyMap: Map<String, Double>,
-    userId: String
+    userId: String,
+    mainViewModel: MainViewModel = viewModel(),
+    viewModel: CurrencyConverterViewModel = viewModel()
 ) {
     val context = LocalContext.current
 
-    var amount by remember { mutableStateOf("") }
-    var convertedAmount by remember { mutableStateOf("") }
-    var selectedOriginCurrencyId by remember { mutableStateOf("") }
-    var selectedDestinationCurrencyId by remember { mutableStateOf("") }
+    // Obtiene mapa de tasas y userId compartido
+    val currencyMap by mainViewModel.currencyMap.collectAsState()
+    val currencies = currencyMap.keys.toList()
 
-    val currencyList = currencyMap.keys.toList()
+    // Estado para el resultado (string formateado)
+    val conversionResult by viewModel.conversionResult.collectAsState()
+
+    var amount by remember { mutableStateOf("") }
+    var fromCurrency by remember { mutableStateOf("") }
+    var toCurrency by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -56,7 +63,7 @@ fun CurrencyConverterScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Conversor de divisas", style = MaterialTheme.typography.headlineMedium)
+        Text("Conversor de Divisas", style = MaterialTheme.typography.headlineMedium)
 
         OutlinedTextField(
             value = amount,
@@ -65,61 +72,42 @@ fun CurrencyConverterScreen(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // Selector de moneda de origen
+        Text("De", style = MaterialTheme.typography.bodyLarge)
         CurrencyDropdown(
             label = "Moneda de origen",
-            currencyList = currencyList.filter { it != selectedDestinationCurrencyId },
-            selectedCurrency = selectedOriginCurrencyId,
-            onCurrencySelected = { selectedOriginCurrencyId = it }
+            currencyList = currencies.filter { it != toCurrency },
+            selectedCurrency = fromCurrency,
+            onCurrencySelected = { fromCurrency = it; viewModel.resetResult() }
         )
 
-        // Selector de moneda de destino
+        Icon(
+            imageVector = Icons.Default.SwapVert,
+            contentDescription = "Intercambiar",
+            modifier = Modifier
+                .size(32.dp)
+                .clickable {
+                    val tmp = fromCurrency
+                    fromCurrency = toCurrency
+                    toCurrency = tmp
+                    viewModel.resetResult()
+                }
+        )
+
+        Text("A", style = MaterialTheme.typography.bodyLarge)
         CurrencyDropdown(
             label = "Moneda de destino",
-            currencyList = currencyList.filter { it != selectedOriginCurrencyId },
-            selectedCurrency = selectedDestinationCurrencyId,
-            onCurrencySelected = { selectedDestinationCurrencyId = it }
+            currencyList = currencies.filter { it != fromCurrency },
+            selectedCurrency = toCurrency,
+            onCurrencySelected = { toCurrency = it; viewModel.resetResult() }
         )
 
-        // Botón de conversión
         Button(
             onClick = {
-                val originRate = currencyMap[selectedOriginCurrencyId]
-                val destRate = currencyMap[selectedDestinationCurrencyId]
-                val amountValue = amount.toDoubleOrNull()
-
-                if (originRate != null && destRate != null && amountValue != null) {
-                    val result = (amountValue / originRate) * destRate
-                    convertedAmount = "%.2f".format(result)
-
-                    // Guardar en Firebase
-                    val firestore = Firebase.firestore
-
-                    val data = hashMapOf(
-                        "amount" to amountValue,
-                        "result" to result,
-                        "originCurrency" to selectedOriginCurrencyId,
-                        "destinyCurrency" to selectedDestinationCurrencyId,
-                        "date" to FieldValue.serverTimestamp(),
-                        "user" to userId
-                    )
-
-                    firestore.collection("conversions")
-                        .add(data)
-                        .addOnSuccessListener {
-                            Toast
-                                .makeText(context, "Conversión guardada en Firebase", Toast.LENGTH_SHORT)
-                                .show()
-                        }
-                        .addOnFailureListener {
-                            Toast
-                                .makeText(context, "Error al guardar conversión", Toast.LENGTH_SHORT)
-                                .show()
-                        }
+                val amt = amount.toDoubleOrNull()
+                if (amt != null && fromCurrency.isNotBlank() && toCurrency.isNotBlank()) {
+                    viewModel.convertAndSave(amt, fromCurrency, toCurrency, userId)
                 } else {
-                    Toast
-                        .makeText(context, "Verifica que todos los datos estén completos", Toast.LENGTH_SHORT)
-                        .show()
+                    Toast.makeText(context, "Por favor completa todos los campos", Toast.LENGTH_SHORT).show()
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -127,9 +115,7 @@ fun CurrencyConverterScreen(
             Text("Convertir")
         }
 
-        if (convertedAmount.isNotEmpty()) {
-            Text("Resultado: $convertedAmount", style = MaterialTheme.typography.titleMedium)
-        }
+        conversionResult?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
     }
 }
 
@@ -150,18 +136,15 @@ fun CurrencyDropdown(
             label = { Text(label) },
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded = true }
+                .clickable { expanded = true },
+            trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null) }
         )
-
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            currencyList.forEach { currencyId ->
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            currencyList.forEach { currency ->
                 DropdownMenuItem(
-                    text = { Text(currencyId) },
+                    text = { Text(currency) },
                     onClick = {
-                        onCurrencySelected(currencyId)
+                        onCurrencySelected(currency)
                         expanded = false
                     }
                 )
